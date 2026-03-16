@@ -1,13 +1,27 @@
-# Ignore big datasets
+# outputs (generated at runtime)
+outputs/
+*.csv
+*.png
+!confusion_matrix_stage1.png
+!sanity_plots/
 
-*.pcap_ISCX.csv
-
-*.ipynb_checkpoints/
+# Python
 __pycache__/
-*.DS_Store
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
 
+# Data (too large for git — use Drive links in README)
+data/
+
+# Jupyter / Colab
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
 .DS_Store
-.DS_Store
-**/.DS_Store
-.DS_Store
-**/.DS_Store
+Thumbs.db

@@ -1,122 +1,172 @@
-# vulnscan
+# VulnScan — Hybrid AI Framework for Vulnerability Prioritisation & Threat Attribution
 
-A **two-stage hybrid framework** for cyber risk analysis.
+> MSc Dissertation Project · Atharva Acharya · University of Warwick (WMG) · 2025
 
-- **Stage-1**: ML-based intrusion detection (IDS) on CIC/UNSW datasets.
-- **Stage-2**: Vulnerability prioritisation and enrichment on Nessus-like findings.
-
----
-
-## 📜 Overview
-
-### 🎯 Goals
-- Detect likely-attacked assets from network flow features (**Stage-1**).
-- Prioritise and contextualise vulnerabilities on those assets (**Stage-2**).
-
-### 🔑 Key Features
-- **LightGBM** models with GPU acceleration (fallback to CPU).
-- **SMOTE** for handling class imbalance.
-- **Asset correlation**: Joins IDS alerts with vulnerability data via IPs.
-- **Enrichment**: Maps services/protocols → MITRE ATT&CK TTP + remediation tips.
-- **Risk scoring**: Asset criticality, exposure, KEV-like heuristics.
-- **Outputs**: Alerts CSV, prioritised vulnerabilities, feature importances, risk bands, optional SHAP explainability.
+A two-stage AI pipeline that connects **live network threat detection** directly to **host-level vulnerability prioritisation**, automating the triage process that security teams typically do manually.
 
 ---
 
-## 📦 Dataset Links
+## The Problem
 
-> **Note:** Due to large file sizes, datasets must be stored externally (Google Drive, Dropbox, etc.) and linked here.
+Security teams face two overwhelming data streams simultaneously: millions of network events from IDS/SIEM tools, and thousands of vulnerabilities from scanners like Nessus. Traditional CVSS-based scoring treats every vulnerability in isolation — it has no awareness of which assets are actively under attack *right now*. This creates a critical gap: analysts waste time patching low-risk theoretical vulnerabilities while actively exploited hosts go unremediated.
 
-- CIC-IDS-2017 → `https://drive.google.com/drive/folders/1L0Fth5OQrjNqw11TTAoFZQsXaUbIuARX?usp=sharing`
-- CSE-CIC-IDS-2018 → `https://drive.google.com/drive/folders/11Xr267ncPzJ7gjHXdGLtURYOaAzTZj3Y?usp=sharing`
-- UNSW-NB15 → `https://drive.google.com/drive/folders/150zpa5fepFIs0FlPcFUXLH1sS-XXRtQh?usp=sharing`
-- Synthetic Nessus dataset (`findings_realistic_v3.csv`) → `https://drive.google.com/drive/folders/1Y_CpC3W05azQjeuN3pdMxD6zkxiPIXbe?usp=sharing`
+## The Solution
 
----
+VulnScan bridges this gap with a sequential two-stage framework:
 
-## ⚡ Colab Quickstart
-
-1. Upload scripts to **Google Colab** or clone the repository.
-2. Mount Google Drive:
-   ```python
-   from google.colab import drive
-   drive.mount('/content/drive')
-   ```
-
----
-
-## 📚 Python Requirements
-
-Install required packages:
-```bash
-pip install numpy pandas scikit-learn lightgbm imbalanced-learn matplotlib seaborn shap
+```
+Network Traffic (PCAP/flows)
+        │
+        ▼
+┌───────────────────┐
+│  Stage 1 — IDS    │  LightGBM binary classifier
+│  Threat Detection │  Identifies compromised assets from network flows
+└────────┬──────────┘
+         │  Alerted IP list
+         ▼
+┌───────────────────┐
+│  Stage 2 — VPM    │  LightGBM multi-class classifier
+│  Vuln Priority    │  Prioritises vulns ONLY on alerted assets
+└────────┬──────────┘
+         │
+         ▼
+  Enriched output:
+  MITRE ATT&CK TTPs · Risk bands (P1–P5) · SLA hints · Remediation advice
 ```
 
 ---
 
-## 🚀 Usage
+## Results
 
-### **Stage-0**: Generate Synthetic Dataset
-**Script:** `generate_realistic_dataset_auto_v3.py`
+| Stage | Task | Model | Score |
+|-------|------|-------|-------|
+| Stage 1 | Binary intrusion detection | LightGBM on CIC-IDS-2017 | **F1 = 1.00** |
+| Stage 2 | Multi-class vulnerability prioritisation | LightGBM on 6M+ synthetic records | **Weighted F1 = 0.89** |
 
-**Example:**
+**Top features driving prioritisation** (SHAP analysis): CVSS score, severity, vulnerability age, exploit availability, asset criticality, internet exposure — empirically validating risk-based principles over raw CVSS scoring.
+
+![SHAP Feature Importance](confusion_matrix_stage1.png)
+
+---
+
+## Quickstart
+
+### 1. Install dependencies
+
 ```bash
-python generate_realistic_dataset_auto_v3.py   --rows 6250000   --target_auc 0.90   --tolerance 0.01   --max_iters 20   --init_overlap 0.40   --init_noise 0.04   --feat_noise 0.06   --random_noise 0.05   --proportions 0.05 0.15 0.30 0.30 0.20   --probe_rows 250000   --probe_sample_per_class 8000   --output Dissertation_Project/simulated_nessus_data/findings_realistic_v3.csv   --plots
+git clone https://github.com/atharva-acharya/vulnscan.git
+cd vulnscan
+pip install -r requirements.txt
 ```
 
-**Outputs:**
-- `findings_realistic_v3.csv`
-- `sanity_plots/*` (if `--plots` used)
+### 2. Demo mode (no datasets needed)
 
----
+Generates a small synthetic dataset and runs the full pipeline end-to-end in under a minute:
 
-### **Stage-1 & Stage-2**: Hybrid Run
-**Script:** `trial_run_for_stage_1_and_2.py`
-
-**Purpose:**
-- **Stage-1:** Train IDS model on CIC/CSE/UNSW data, export high-probability alerts.
-- **Stage-2:** Join Nessus-like data with Stage-1 alerts, train prioritisation model, enrich with TTP + remediation.
-
-**Run:**
 ```bash
-python trial_run_for_stage_1_and_2.py
+python pipeline.py --demo
 ```
 
-**Outputs:**
-- `alerts_stage1.csv`
-- `vuln_prioritized_enriched.csv`
-- `feature_importances.csv`
-- `risk_bands_summary.csv`
-- `shap_summary.png` (optional)
+### 3. Full pipeline with real data
+
+**Download datasets** (large files — stored externally):
+
+| Dataset | Link |
+|---------|------|
+| CIC-IDS-2017 | [Google Drive](https://drive.google.com/drive/folders/1L0Fth5OQrjNqw11TTAoFZQsXaUbIuARX?usp=sharing) |
+| CSE-CIC-IDS-2018 | [Google Drive](https://drive.google.com/drive/folders/11Xr267ncPzJ7gjHXdGLtURYOaAzTZj3Y?usp=sharing) |
+| UNSW-NB15 | [Google Drive](https://drive.google.com/drive/folders/150zpa5fepFIs0FlPcFUXLH1sS-XXRtQh?usp=sharing) |
+| Synthetic Nessus findings | [Google Drive](https://drive.google.com/drive/folders/1Y_CpC3W05azQjeuN3pdMxD6zkxiPIXbe?usp=sharing) |
+
+**Run the full pipeline:**
+
+```bash
+python pipeline.py \
+    --ids-dir   ./data/cic-ids-2017 \
+    --nessus-csv ./data/findings.csv \
+    --output-dir ./outputs
+```
+
+**Stage 2 only** (if Stage 1 alerts already exist):
+
+```bash
+python pipeline.py \
+    --nessus-csv ./data/findings.csv \
+    --alerts     ./outputs/alerts_stage1.csv \
+    --skip-stage1
+```
 
 ---
 
-## 🔍 Script Details
+## Outputs
 
-### **`generate_realistic_dataset_auto_v3.py`**
-- Generates large Nessus-like vulnerability dataset.
-- Tunable parameters for class balance, noise, and AUC target.
-- Outputs numeric & categorical features plus `remediation_priority`.
+All outputs are written to `./outputs/` (or your `--output-dir`):
 
-### **`trial_run_for_stage_1_and_2.py`**
-- **Stage-1:** LightGBM binary classifier with SMOTE + ColumnTransformer preprocessing.
-- **Stage-2:** Risk-based prioritisation with contextual features (`asset_criticality`, `internet_exposed`, etc.) and TTP mapping.
+| File | Description |
+|------|-------------|
+| `alerts_stage1.csv` | Alerted IPs with attack probability scores from Stage 1 |
+| `vuln_prioritized_enriched.csv` | Vulnerabilities ranked by risk score with TTP mapping and SLA hints |
+| `risk_bands_summary.csv` | Aggregate summary: count, mean risk, mean CVSS per priority band (P1–P5) |
+| `shap_summary.png` | SHAP feature importance plot (generated if `shap` is installed) |
+
+### Reading the output
+
+- **`priority_band`** — P1 (critical, patch in 24–48h) through P5 (low, monitor/schedule)
+- **`risk_score`** — 0–1 composite score accounting for CVSS, exploit availability, asset criticality, and internet exposure
+- **`ttp`** — mapped MITRE ATT&CK technique (e.g. `T1190: Exploit Public-Facing Application`)
+- **`sla_hint`** — plain-English patching SLA for the analyst
+
+---
+
+## Generating the synthetic Nessus dataset
+
+The synthetic dataset mimics a real Nessus scan report with correlated features (CVSS, severity, exploit availability, vulnerability age). To regenerate it:
+
+```bash
+python generate_realistic_dataset_auto_v3.py \
+    --rows 6250000 \
+    --output ./data/findings.csv \
+    --plots
+```
 
 ---
 
-## 📊 Results Interpretation
+## Technical Design
 
-- **Stage-1:** `alerts_stage1.csv` → probable attacks & asset IPs.
-- **Stage-2:** `vuln_prioritized_enriched.csv` → vulnerabilities ranked by `risk_score` & `predicted_priority`.
-- `priority_band` (`P1`..`P5`) + `sla_hint` → operational patch guidance.
+- **Algorithm:** LightGBM (gradient boosting) — chosen for superior performance on tabular data and training efficiency vs XGBoost on large datasets
+- **Class imbalance:** SMOTE (Synthetic Minority Over-sampling Technique) applied in both stages
+- **Preprocessing:** `ColumnTransformer` with `StandardScaler` for numeric features and `OneHotEncoder` for categorical
+- **Explainability:** SHAP (SHapley Additive exPlanations) for feature importance analysis
+- **TTP mapping:** Keyword-based matching of service names to MITRE ATT&CK techniques
+- **CyBOK alignment:** Risk Management & Governance, Network Security, Security Operations & Incident Management
+
+---
+
+## Project Structure
+
+```
+vulnscan/
+├── pipeline.py                          # Main pipeline (Stage 1 + Stage 2)
+├── generate_realistic_dataset_auto_v3.py # Synthetic Nessus dataset generator
+├── requirements.txt
+├── outputs/                             # Generated at runtime (gitignored)
+│   ├── alerts_stage1.csv
+│   ├── vuln_prioritized_enriched.csv
+│   ├── risk_bands_summary.csv
+│   └── shap_summary.png
+└── sanity_plots/                        # Dataset validation plots
+```
 
 ---
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
-- **Datasets:**
-  - CIC-IDS-2017 / CSE-CIC-IDS-2018 — *Canadian Institute for Cybersecurity*
-  - UNSW-NB15 — *University of New South Wales / IXIA*
-- **Note:** Synthetic Nessus-like dataset is for research purposes only.
+- **CIC-IDS-2017 / CSE-CIC-IDS-2018** — Canadian Institute for Cybersecurity, University of New Brunswick
+- **UNSW-NB15** — University of New South Wales / IXIA PerfectStorm
+- Dissertation supervised by Sarah Aktaa, WMG, University of Warwick
 
 ---
+
+## Licence
+
+This project is for academic and research purposes. The synthetic Nessus dataset does not contain any real vulnerability data.
