@@ -23,6 +23,8 @@ import os
 import sys
 import numpy as np
 import pandas as pd
+import warnings
+warnings.filterwarnings("ignore")
 import matplotlib
 matplotlib.use("Agg")           # headless — no display needed
 import matplotlib.pyplot as plt
@@ -87,7 +89,7 @@ def list_csvs(folder: str):
 
 def build_lightgbm(**kwargs) -> LGBMClassifier:
     """GPU with automatic CPU fallback."""
-    base = dict(random_state=42, n_estimators=300, learning_rate=0.1, n_jobs=-1)
+    base = dict(random_state=42, n_estimators=300, learning_rate=0.1, n_jobs=-1, verbose=-1)
     base.update(kwargs)
     try:
         clf = LGBMClassifier(**{**base, "device": "gpu"})
@@ -121,35 +123,46 @@ def make_demo_data(out_dir: str):
     n   = 5_000
 
     # --- IDS data (mimics CIC-IDS-2017 columns) ---
+    is_attack = rng.choice([0, 1], n, p=[0.7, 0.3])
+    labels = ["BENIGN" if a == 0 else rng.choice(["DoS Hulk", "PortScan"]) for a in is_attack]
+    
     ids_df = pd.DataFrame({
-        "Destination Port": rng.integers(1, 65535, n),
-        "Flow Duration":    rng.integers(0, 1_000_000, n),
-        "Total Fwd Packets":rng.integers(1, 500, n),
-        "Total Backward Packets": rng.integers(0, 500, n),
-        "Flow Bytes/s":     rng.uniform(0, 1e6, n),
-        "Flow Packets/s":   rng.uniform(0, 1e4, n),
-        "Label": rng.choice(["BENIGN","DoS Hulk","PortScan"], n, p=[0.7,0.2,0.1]),
+        "Destination Port": rng.choice([80, 443, 22, 53], n),
+        "Flow Duration":    rng.integers(100, 1000, n) + (is_attack * rng.integers(500000, 900000, n)),
+        "Total Fwd Packets":rng.integers(1, 10, n) + (is_attack * rng.integers(50, 400, n)),
+        "Total Backward Packets": rng.integers(0, 10, n) + (is_attack * rng.integers(10, 400, n)),
+        "Flow Bytes/s":     rng.uniform(10, 1000, n) + (is_attack * rng.uniform(1e4, 1e6, n)),
+        "Flow Packets/s":   rng.uniform(1, 50, n) + (is_attack * rng.uniform(500, 10000, n)),
+        "Label": labels,
         "Source IP": [f"192.168.1.{rng.integers(1,50)}" for _ in range(n)],
     })
-    ids_path = os.path.join(out_dir, "demo_ids.csv")
+    ids_dir_path = os.path.join(out_dir, "ids")
+    os.makedirs(ids_dir_path, exist_ok=True)
+    ids_path = os.path.join(ids_dir_path, "demo_ids.csv")
     ids_df.to_csv(ids_path, index=False)
 
     # --- Nessus-like findings ---
     ips = ids_df["Source IP"].unique()
+    
+    # Generate structured priorities
+    severity = rng.integers(0, 5, n)
+    cvss = severity * 2.0 + rng.uniform(0.1, 1.9, n)
+    cvss = np.clip(cvss, 0, 10.0)
+    
     vuln_df = pd.DataFrame({
         "Source IP":    rng.choice(ips, n),
-        "cvss":         rng.uniform(0, 10, n).round(1),
-        "severity":     rng.integers(0, 5, n),
-        "exploit_available": rng.integers(0, 2, n),
-        "description_len": rng.integers(50, 700, n),
-        "age_days":     rng.integers(0, 200, n),
-        "persistence_scans": np.ones(n, int),
-        "port":         rng.integers(1, 9000, n),
+        "cvss":         cvss.round(1),
+        "severity":     severity,
+        "exploit_available": (severity >= 3).astype(int), # High severity -> exploit likely
+        "description_len": rng.integers(50, 200, n) + (severity * 100),
+        "age_days":     rng.integers(0, 50, n) + (severity * 30),
+        "persistence_scans": np.ones(n, int) + severity,
+        "port":         rng.choice([80, 443, 22, 3389, 445], n),
         "proto":        rng.choice(PROTO_POOL, n),
         "svc_name":     rng.choice(SERVICE_POOL, n),
-        "remediation_priority": rng.integers(1, 6, n),
-        "asset_criticality":    rng.integers(1, 6, n),
-        "internet_exposed":     rng.integers(0, 2, n),
+        "remediation_priority": severity + 1,
+        "asset_criticality":    np.clip(severity + rng.integers(-1, 2, n), 1, 5),
+        "internet_exposed":     (severity >= 2).astype(int),
     })
     vuln_path = os.path.join(out_dir, "demo_findings.csv")
     vuln_df.to_csv(vuln_path, index=False)
@@ -431,7 +444,7 @@ def main():
         demo_dir = os.path.join(args.output_dir, "demo_data")
         ensure_dir(demo_dir)
         ids_csv, nessus_csv = make_demo_data(demo_dir)
-        args.ids_dir    = demo_dir
+        args.ids_dir    = os.path.join(demo_dir, "ids")
         args.nessus_csv = nessus_csv
         args.skip_stage1 = False
 
